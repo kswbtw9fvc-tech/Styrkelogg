@@ -35,6 +35,7 @@ button,.btn{border:1px solid var(--line);background:var(--panel2);color:var(--tx
 <section id="settings" class="hidden">
 <h2 class="sectiontitle">Data og innstillinger</h2>
 <div class="card"><b>Ta vare på treningshistorikken</b><p class="notice">Data lagres lokalt i nettleseren på denne enheten. Eksporter en sikkerhetskopi jevnlig, særlig før du bytter telefon eller nettleser.</p><div class="actions"><button class="primary" onclick="exportData()">Eksporter sikkerhetskopi</button><button onclick="document.getElementById('importFile').click()">Importer sikkerhetskopi</button><input id="importFile" type="file" accept="application/json" class="hidden" onchange="importData(event)"></div></div>
+<div class="card"><div class="row"><b>Rediger treningsprogram</b><span class="pill">Tilpass selv</span></div><p class="notice">Bytt øvelser, legg til eller fjern øvelser, og endre sett og repetisjoner. Endringene lagres på denne enheten.</p><div id="programEditor"></div></div>
 <div class="card"><b>Om denne appen</b><p class="notice">Styrkelogg – 5-dagersprogram med Pull mandag, Push tirsdag, Legs onsdag, Upper fredag og Lower lørdag.</p><button class="danger" onclick="clearData()">Slett all historikk</button></div>
 <div class="card"><b>Legg til på iPhone</b><p class="notice">Når appen er publisert på en HTTPS-adresse: åpne adressen i Safari → trykk Del → velg «Legg til på Hjem-skjerm». En lokal HTML-fil kan ikke installeres som en fullverdig nettapp fra Hjem-skjermen.</p></div>
 </section>
@@ -50,9 +51,10 @@ const plan=[
 {name:"Lower B + mage",day:"Lørdag",ex:[["Markløft",2,"4–6"],["Bulgarske splittknebøy",3,"8–10 / bein"],["Hip thrust",2,"8–12"],["Sittende lårcurl",3,"10–15"],["Sittende tåhev",3,"12–20"],["Kabelcrunch",3,"12–15"],["Hengende beinhev",2,"10–15"]]}
 ];
 let sessions=JSON.parse(localStorage.getItem("styrkelogg_v2")||"[]"), selected=0, draft={};
+try { const savedPlan=JSON.parse(localStorage.getItem("styrkelogg_plan_v1")||"null"); if(Array.isArray(savedPlan)&&savedPlan.length) plan.splice(0,plan.length,...savedPlan); } catch(e) {}
 const $=id=>document.getElementById(id);
 function persist(){localStorage.setItem("styrkelogg_v2",JSON.stringify(sessions))}
-function show(tab){["home","workout","history","settings"].forEach(x=>$(x).classList.toggle("hidden",x!==tab));document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));if(tab==="home")renderHome();if(tab==="history")renderHistory()}
+function show(tab){["home","workout","history","settings"].forEach(x=>$(x).classList.toggle("hidden",x!==tab));document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));if(tab==="home")renderHome();if(tab==="history")renderHistory();if(tab==="settings")renderProgramEditor()}
 function dateStr(d=new Date()){return d.toLocaleDateString("no-NO",{day:"numeric",month:"long",year:"numeric"})}
 function renderHome(){
 $("stats").innerHTML=`<div class="stat"><strong>${sessions.length}</strong><span>ØKTER LAGRET</span></div><div class="stat"><strong>${sessions.reduce((a,s)=>a+s.exercises.reduce((b,e)=>b+e.sets.filter(z=>z.done).length,0),0)}</strong><span>SETT REGISTRERT</span></div><div class="stat"><strong>${sessions.length?Math.round(sessions.reduce((a,s)=>a+s.exercises.reduce((b,e)=>b+e.sets.reduce((c,z)=>c+(+z.kg||0)*(+z.reps||0),0),0),0)):"–"}</strong><span>KG × REPS</span></div>`;
@@ -71,6 +73,16 @@ $("chartExercise").addEventListener("change",drawChart);
 function exportData(){let blob=new Blob([JSON.stringify({app:"Styrkelogg",version:2,sessions},null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="styrkelogg-sikkerhetskopi.json";a.click();URL.revokeObjectURL(a.href)}
 function importData(ev){let f=ev.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let d=JSON.parse(r.result);if(!Array.isArray(d.sessions))throw Error();if(confirm(`Importere ${d.sessions.length} økter? Eksisterende historikk beholdes.`)){sessions=[...sessions,...d.sessions];persist();alert("Sikkerhetskopi importert.");renderHistory()}}catch(e){alert("Filen kunne ikke leses som en Styrkelogg-sikkerhetskopi.")}};r.readAsText(f);ev.target.value=""}
 function clearData(){if(confirm("Dette sletter all lagret treningshistorikk på denne enheten. Fortsette?")){sessions=[];persist();renderHome();alert("Historikken er slettet.")}}
+function savePlan(){localStorage.setItem("styrkelogg_plan_v1",JSON.stringify(plan));renderHome();renderProgramEditor();alert("Treningsprogrammet er lagret.");}
+function renderProgramEditor(){
+ const root=$("programEditor"); if(!root)return;
+ root.innerHTML=plan.map((p,i)=>`<div class="session"><div class="row"><b>${p.day} – ${escapeHtml(p.name)}</b><button onclick="addExercise(${i})">＋ Øvelse</button></div><label class="small muted">Navn på økten<input class="select" style="margin:6px 0" value="${escapeHtml(p.name)}" onchange="plan[${i}].name=this.value;savePlanQuiet()"></label>
+ ${p.ex.map((e,j)=>`<div class="exercise"><label class="small muted">Øvelse ${j+1}<input class="select" style="margin:5px 0" value="${escapeHtml(e[0])}" onchange="plan[${i}].ex[${j}][0]=this.value;savePlanQuiet()"></label><div class="row" style="gap:7px"><label class="small muted" style="flex:1">Sett<input class="select" type="number" min="1" max="10" value="${e[1]}" onchange="plan[${i}].ex[${j}][1]=Math.max(1,Math.min(10,+this.value||1));savePlanQuiet()"></label><label class="small muted" style="flex:1">Reps<input class="select" value="${escapeHtml(e[2])}" onchange="plan[${i}].ex[${j}][2]=this.value;savePlanQuiet()"></label><button class="danger" onclick="removeExercise(${i},${j})">Slett</button><button onclick="moveExercise(${i},${j},-1)">↑</button><button onclick="moveExercise(${i},${j},1)">↓</button></div></div>`).join("")}</div>`).join("")+`<button class="primary" style="width:100%" onclick="savePlan()">Lagre treningsprogram</button><p class="notice">Endringer i programmet gjelder nye økter. Historiske økter beholdes slik de ble loggført.</p>`;
+}
+function savePlanQuiet(){localStorage.setItem("styrkelogg_plan_v1",JSON.stringify(plan));}
+function addExercise(i){plan[i].ex.push(["Ny øvelse",3,"8–12"]);savePlanQuiet();renderProgramEditor();}
+function removeExercise(i,j){if(confirm("Fjerne denne øvelsen fra programmet?")){plan[i].ex.splice(j,1);savePlanQuiet();renderProgramEditor();}}
+function moveExercise(i,j,d){let k=j+d;if(k<0||k>=plan[i].ex.length)return;[plan[i].ex[j],plan[i].ex[k]]=[plan[i].ex[k],plan[i].ex[j]];savePlanQuiet();renderProgramEditor();}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 renderHome();
 </script></body></html>
